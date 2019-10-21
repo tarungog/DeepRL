@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
+from gym.spaces import MultiDiscrete
 
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.atari_wrappers import FrameStack as FrameStack_
@@ -136,6 +137,9 @@ class DummyVecEnv(VecEnv):
     def step_wait(self):
         data = []
         for i in range(self.num_envs):
+            print(" step wait actions ", self.actions)
+            print(" step wait actions[i] ", self.actions[i])
+
             obs, rew, done, info = self.envs[i].step(self.actions[i])
             if done:
                 obs = self.envs[i].reset()
@@ -174,6 +178,8 @@ class Task:
         if isinstance(self.action_space, Discrete):
             self.action_dim = self.action_space.n
         elif isinstance(self.action_space, Box):
+            self.action_dim = self.action_space.shape[0]
+        elif isinstance(self.action_space, MultiDiscrete):
             self.action_dim = self.action_space.shape[0]
         else:
             assert 'unknown action space'

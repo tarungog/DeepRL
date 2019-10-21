@@ -81,6 +81,7 @@ class BaseAgent:
             self.task = config.tasks[self.task_ind]
             self.states = self.task.reset()
             self.states = config.state_normalizer(self.states)
+            self.done = True
 
     def record_episode(self, dir, env):
         mkdir(dir)
