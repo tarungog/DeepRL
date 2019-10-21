@@ -27,7 +27,7 @@ class A2CRecurrentAgent(BaseAgent):
         states = self.states
         for _ in range(config.rollout_length):
             if self.done:
-                prediction = self.network(config.state_normalizer(states))
+                prediction, self.last_hidden = self.network(config.state_normalizer(states))
             else:
                 prediction, self.last_hidden = self.network(config.state_normalizer(states), self.last_hidden)
 
