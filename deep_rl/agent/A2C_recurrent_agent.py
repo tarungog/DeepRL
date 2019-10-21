@@ -27,9 +27,9 @@ class A2CRecurrentAgent(BaseAgent):
         states = self.states
         for _ in range(config.rollout_length):
             if self.done:
-                prediction, self.last_hidden = self.network(config.state_normalizer(states))
+                prediction, self.recurrent_states = self.network(config.state_normalizer(states))
             else:
-                prediction, self.last_hidden = self.network(config.state_normalizer(states), self.last_hidden)
+                prediction, self.recurrent_states = self.network(config.state_normalizer(states), self.recurrent_states)
 
             self.done = False
             next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
@@ -43,7 +43,7 @@ class A2CRecurrentAgent(BaseAgent):
             self.total_steps += config.num_workers
 
         self.states = states
-        prediction = self.network(config.state_normalizer(states))
+        prediction, self.recurrent_states = self.network(config.state_normalizer(states))
         storage.add(prediction)
         storage.placeholder()
 
