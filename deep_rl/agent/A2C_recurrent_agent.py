@@ -19,6 +19,7 @@ class A2CRecurrentAgent(BaseAgent):
         self.total_steps = 0
         self.states = self.task.reset()
         self.recurrent_states = None
+        self.done = True
 
     def step(self):
         config = self.config
