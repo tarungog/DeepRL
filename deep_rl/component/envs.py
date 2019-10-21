@@ -12,9 +12,9 @@ from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from gym.spaces import MultiDiscrete
 
-from baselines.common.atari_wrappers import make_atari, wrap_deepmind
-from baselines.common.atari_wrappers import FrameStack as FrameStack_
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv, VecEnv
+from stable_baselines.common.atari_wrappers import make_atari, wrap_deepmind
+from stable_baselines.common.atari_wrappers import FrameStack as FrameStack_
+from stable_baselines.common.vec_env.subproc_vec_env import SubprocVecEnv, VecEnv
 
 from ..utils import *
 

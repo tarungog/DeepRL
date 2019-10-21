@@ -5,7 +5,7 @@
 #######################################################################
 import numpy as np
 import torch
-from baselines.common.running_mean_std import RunningMeanStd
+from stable_baselines.common.running_mean_std import RunningMeanStd
 
 
 class BaseNormalizer:
