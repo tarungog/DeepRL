@@ -124,11 +124,10 @@ class FrameStack(FrameStack_):
 
 
 # The original one in baselines is really bad
-class DummyVecEnv(VecEnv):
+class DummyVecEnv:
     def __init__(self, env_fns):
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]
-        VecEnv.__init__(self, len(env_fns), env.observation_space, env.action_space)
         self.actions = None
 
     def step_async(self, actions):
@@ -136,23 +135,23 @@ class DummyVecEnv(VecEnv):
 
     def step_wait(self):
         data = []
-        for i in range(self.num_envs):
-            print(" step wait actions ", self.actions)
-            print(" step wait actions[i] ", self.actions[i])
-
-            obs, rew, done, info = self.envs[i].step(self.actions[i])
+        for i, x in enumerate(self.envs):
+            obs, rew, done, info = self.envs[i].step(self.actions)
             if done:
                 obs = self.envs[i].reset()
             data.append([obs, rew, done, info])
         obs, rew, done, info = zip(*data)
         return obs, np.asarray(rew), np.asarray(done), info
 
+    def step(self, actions):
+        self.step_async(actions)
+        return self.step_wait()
+
     def reset(self):
         return [env.reset() for env in self.envs]
 
     def close(self):
         return
-
 
 class Task:
     def __init__(self,

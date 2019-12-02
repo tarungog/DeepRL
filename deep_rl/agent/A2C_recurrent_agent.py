@@ -14,7 +14,7 @@ class A2CRecurrentAgent(BaseAgent):
         BaseAgent.__init__(self, config)
         self.config = config
         self.task = config.task_fn()
-        self.network = config.network_fn()
+        self.network = config.network
         self.optimizer = config.optimizer_fn(self.network.parameters())
         self.total_steps = 0
         self.states = self.task.reset()
@@ -26,18 +26,25 @@ class A2CRecurrentAgent(BaseAgent):
         storage = Storage(config.rollout_length)
         states = self.states
         for _ in range(config.rollout_length):
+            start = time.time()
             if self.done:
                 prediction, self.recurrent_states = self.network(config.state_normalizer(states))
             else:
                 prediction, self.recurrent_states = self.network(config.state_normalizer(states), self.recurrent_states)
+            end = time.time()
+            print('network time', end-start)
 
             self.done = False
+
+            start = time.time()
             next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
+            end = time.time()
+            print('step time', end-start)
             self.record_online_return(info)
             rewards = config.reward_normalizer(rewards)
             storage.add(prediction)
-            storage.add({'r': tensor(rewards).unsqueeze(-1),
-                         'm': tensor(1 - terminals).unsqueeze(-1)})
+            storage.add({'r': tensor(rewards).unsqueeze(-1).cuda(),
+                         'm': tensor(1 - terminals).unsqueeze(-1).cuda()})
 
             states = next_states
             self.total_steps += config.num_workers
@@ -47,7 +54,7 @@ class A2CRecurrentAgent(BaseAgent):
         storage.add(prediction)
         storage.placeholder()
 
-        advantages = tensor(np.zeros((config.num_workers, 1)))
+        advantages = tensor(np.zeros((config.num_workers, 1))).cuda()
         returns = prediction['v'].detach()
         for i in reversed(range(config.rollout_length)):
             returns = storage.r[i] + config.discount * storage.m[i] * returns
