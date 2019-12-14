@@ -14,7 +14,11 @@ class A2CAgent(BaseAgent):
         BaseAgent.__init__(self, config)
         self.config = config
         self.task = config.task_fn()
-        self.network = config.network
+        if config.network:
+            self.network = config.network
+        else:
+            self.network = config.network_fn()
+        self.network.to(torch.device('cuda'))
         self.optimizer = config.optimizer_fn(self.network.parameters())
         self.total_steps = 0
         self.states = self.task.reset()
@@ -55,7 +59,10 @@ class A2CAgent(BaseAgent):
         for i in reversed(range(config.rollout_length)):
             returns = storage.r[i] + config.discount * storage.m[i] * returns
             if not config.use_gae:
-                advantages = returns - storage.v[i].detach()
+                print(advantages.device)
+                print(returns.device)
+                print(storage.v[i].detach().device)
+                advantages = returns - storage.v[i].detach().cuda()
             else:
                 td_error = storage.r[i] + config.discount * storage.m[i] * storage.v[i + 1] - storage.v[i]
                 advantages = advantages * config.gae_tau * config.discount * storage.m[i] + td_error

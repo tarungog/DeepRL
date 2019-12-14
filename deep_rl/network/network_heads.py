@@ -117,7 +117,7 @@ class DeterministicActorCriticNet(nn.Module, BaseNet):
         self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
         self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
-        
+
         self.actor_opt = actor_opt_fn(self.actor_params + self.phi_params)
         self.critic_opt = critic_opt_fn(self.critic_params + self.phi_params)
         self.to(Config.DEVICE)
@@ -158,7 +158,7 @@ class GaussianActorCriticNet(nn.Module, BaseNet):
         self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
         self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
-        
+
         self.std = nn.Parameter(torch.zeros(action_dim))
         self.to(Config.DEVICE)
 
@@ -201,11 +201,12 @@ class CategoricalActorCriticNet(nn.Module, BaseNet):
         self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
         self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
-        
+
         self.to(Config.DEVICE)
 
     def forward(self, obs, action=None):
         obs = tensor(obs)
+        print('obs', obs.device)
         phi = self.phi_body(obs)
         phi_a = self.actor_body(phi)
         phi_v = self.critic_body(phi)
