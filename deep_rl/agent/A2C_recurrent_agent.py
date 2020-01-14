@@ -14,12 +14,17 @@ class A2CRecurrentAgent(BaseAgent):
         BaseAgent.__init__(self, config)
         self.config = config
         self.task = config.task_fn()
-        self.network = config.network
+        if config.network:
+            self.network = config.network
+        else:
+            self.network = config.network_fn()
+        self.network.to(torch.device('cuda'))
         self.optimizer = config.optimizer_fn(self.network.parameters())
         self.total_steps = 0
         self.states = self.task.reset()
         self.recurrent_states = None
         self.done = True
+        self.smh = None
 
     def step(self):
         config = self.config
@@ -51,6 +56,8 @@ class A2CRecurrentAgent(BaseAgent):
 
         self.states = states
         prediction, self.recurrent_states = self.network(config.state_normalizer(states))
+        # self.smh = [s.detach() for s in self.smh]
+
         storage.add(prediction)
         storage.placeholder()
 
@@ -71,8 +78,17 @@ class A2CRecurrentAgent(BaseAgent):
         value_loss = 0.5 * (returns - value).pow(2).mean()
         entropy_loss = entropy.mean()
 
+        self.logger.add_scalar('advantages', advantages.mean(), self.total_steps)
+        self.logger.add_scalar('policy_loss', policy_loss, self.total_steps)
+        self.logger.add_scalar('value_loss', value_loss, self.total_steps)
+        self.logger.add_scalar('entropy_loss', entropy_loss, self.total_steps)
+
         self.optimizer.zero_grad()
         (policy_loss - config.entropy_weight * entropy_loss +
          config.value_loss_weight * value_loss).backward()
-        nn.utils.clip_grad_norm_(self.network.parameters(), config.gradient_clip)
+        grad_norm = nn.utils.clip_grad_norm_(self.network.parameters(), config.gradient_clip)
+        self.logger.add_scalar('grad_norm', grad_norm, self.total_steps)
         self.optimizer.step()
+
+        # [rs.detach_() for rs in self.recurrent_states]
+        # self.recurrent_states = [rs.detach() for rs in self.recurrent_states]

@@ -9,7 +9,7 @@ from ..component import *
 from .BaseAgent import *
 
 
-class PPOAgent(BaseAgent):
+class PPORecurrentAgent(BaseAgent):
     def __init__(self, config):
         BaseAgent.__init__(self, config)
         self.config = config
@@ -21,19 +21,25 @@ class PPOAgent(BaseAgent):
         self.network.to(torch.device('cuda'))
         self.opt = config.optimizer_fn(self.network.parameters())
         self.total_steps = 0
+        self.recurrent_states = None
         self.states = self.task.reset()
-        self.states = config.state_normalizer(self.states)
+        self.done = True
 
     def step(self):
         config = self.config
         storage = Storage(config.rollout_length)
         states = self.states
         for _ in range(config.rollout_length):
-            prediction = self.network(states)
+
+            if self.done:
+                prediction, self.recurrent_states = self.network(states)
+            else:
+                prediction, self.recurrent_states = self.network(states, self.recurrent_states)
+
+            self.done = False
             next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
             self.record_online_return(info)
             rewards = config.reward_normalizer(rewards)
-            next_states = config.state_normalizer(next_states)
             storage.add(prediction)
             storage.add({'r': tensor(rewards).unsqueeze(-1),
                          'm': tensor(1 - terminals).unsqueeze(-1),
@@ -42,7 +48,7 @@ class PPOAgent(BaseAgent):
             self.total_steps += config.num_workers
 
         self.states = states
-        prediction = self.network(states)
+        prediction, self.recurrent_states = self.network(states)
         storage.add(prediction)
         storage.placeholder()
 

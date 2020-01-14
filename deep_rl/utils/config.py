@@ -67,8 +67,6 @@ class Config:
     @eval_env.setter
     def eval_env(self, env):
         self.__eval_env = env
-        self.state_dim = env.state_dim
-        self.action_dim = env.action_dim
         self.task_name = env.name
 
     def add_argument(self, *args, **kwargs):
