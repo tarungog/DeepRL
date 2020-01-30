@@ -37,13 +37,17 @@ class A2CRecurrentAgent(BaseAgent):
             else:
                 prediction, self.recurrent_states = self.network(config.state_normalizer(states), self.recurrent_states)
             end = time.time()
-            print('network time', end-start)
+
+            self.logger.add_scalar('forward_pass_time', end-start, self.total_steps)
+            print('forward time', end-start)
 
             self.done = False
 
             start = time.time()
             next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
             end = time.time()
+
+            self.logger.add_scalar('env_step_time', end-start, self.total_steps)
             print('step time', end-start)
             self.record_online_return(info)
             rewards = config.reward_normalizer(rewards)
@@ -83,6 +87,8 @@ class A2CRecurrentAgent(BaseAgent):
         self.logger.add_scalar('value_loss', value_loss, self.total_steps)
         self.logger.add_scalar('entropy_loss', entropy_loss, self.total_steps)
 
+        start = time.time()
+
         self.optimizer.zero_grad()
         (policy_loss - config.entropy_weight * entropy_loss +
          config.value_loss_weight * value_loss).backward()
@@ -90,5 +96,7 @@ class A2CRecurrentAgent(BaseAgent):
         self.logger.add_scalar('grad_norm', grad_norm, self.total_steps)
         self.optimizer.step()
 
+        end = time.time()
+        self.logger.add_scalar('backwards_pass_time', end-start, self.total_steps)
         # [rs.detach_() for rs in self.recurrent_states]
         # self.recurrent_states = [rs.detach() for rs in self.recurrent_states]
