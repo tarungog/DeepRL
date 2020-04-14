@@ -8,6 +8,8 @@ from ..network import *
 from ..component import *
 from .BaseAgent import *
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class A2CRecurrentAgent(BaseAgent):
     def __init__(self, config):
@@ -18,7 +20,7 @@ class A2CRecurrentAgent(BaseAgent):
             self.network = config.network
         else:
             self.network = config.network_fn()
-        self.network.to(torch.device('cuda'))
+        self.network.to(device)
         self.optimizer = config.optimizer_fn(self.network.parameters())
         self.total_steps = 0
         self.states = self.task.reset()
@@ -33,10 +35,13 @@ class A2CRecurrentAgent(BaseAgent):
         for _ in range(config.rollout_length):
             start = time.time()
             if self.done:
+                print('done1')
                 prediction, self.recurrent_states = self.network(config.state_normalizer(states))
             else:
                 prediction, self.recurrent_states = self.network(config.state_normalizer(states), self.recurrent_states)
             end = time.time()
+
+            print('reserved bytes', torch.cuda.memory_reserved() / (1024 * 1024), 'MB')
 
             self.logger.add_scalar('forward_pass_time', end-start, self.total_steps)
             print('forward time', end-start)
@@ -100,3 +105,5 @@ class A2CRecurrentAgent(BaseAgent):
         self.logger.add_scalar('backwards_pass_time', end-start, self.total_steps)
         # [rs.detach_() for rs in self.recurrent_states]
         # self.recurrent_states = [rs.detach() for rs in self.recurrent_states]
+
+

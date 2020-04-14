@@ -8,6 +8,7 @@ from .config import *
 import torch
 import os
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def select_device(gpu_id):
     # if torch.cuda.is_available() and gpu_id >= 0:
@@ -21,7 +22,7 @@ def tensor(x):
     if isinstance(x, torch.Tensor):
         return x
     x = np.asarray(x, dtype=np.float)
-    x = torch.tensor(x, device=torch.device('cuda'), dtype=torch.float32)
+    x = torch.tensor(x, device=device, dtype=torch.float32)
     return x
 
 
