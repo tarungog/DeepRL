@@ -8,6 +8,8 @@ from ..network import *
 from ..component import *
 from .BaseAgent import *
 
+from collections import deque
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -27,6 +29,10 @@ class A2CRecurrentAgent(BaseAgent):
         self.recurrent_states = None
         self.done = True
         self.smh = None
+        self.curr = config.curriculum
+
+        if self.curr:
+            self.reward_buffer = deque([], maxlen=(config.num_workers + self.curr.min_length))
 
     def step(self):
         config = self.config
@@ -62,6 +68,26 @@ class A2CRecurrentAgent(BaseAgent):
 
             states = next_states
             self.total_steps += config.num_workers
+
+            for ifs in info:
+                if ifs['episodic_return'] is not None:
+                    self.reward_buffer.append(ifs['episodic_return'])
+
+        if self.curr is not None:
+            if len(self.reward_buffer) >= self.curr.min_length + config.num_workers:
+                rewbuf = np.array(self.reward_buffer)[-1 * self.curr.min_length:]
+                conds = rewbuf > self.curr.win_cond
+
+                self.logger.add_scalar('win_percent', conds.mean(), self.total_steps)
+
+                if conds.mean() > self.curr.success_percent:
+                    self.task.change_level(True)
+                    self.reward_buffer.clear()
+
+                if conds.mean() < self.curr.fail_percent:
+                    self.task.change_level(False)
+                    self.reward_buffer.clear()
+
 
         self.states = states
         prediction, self.recurrent_states = self.network(config.state_normalizer(states))

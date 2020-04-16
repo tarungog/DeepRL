@@ -150,8 +150,29 @@ class DummyVecEnv:
     def reset(self):
         return [env.reset() for env in self.envs]
 
+    def env_method(self, method_name, *args, **kwargs):
+        # print(args)
+        # print(kwargs)
+        # if method_name == 'change_level':
+        #     return [getattr(env, method_name)(args[0]) for env in self.envs]
+        return [getattr(env, method_name)(*args, **kwargs) for env in self.envs]
+
     def close(self):
         return
+
+    # def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
+    #     """Call instance methods of vectorized environments."""
+    #     target_envs = self._get_target_envs(indices)
+    #     return [getattr(env_i, method_name)(*method_args, **method_kwargs) for env_i in target_envs]
+
+    # def _get_target_envs(self, indices):
+    #     indices = self._get_indices(indices)
+    #     return [self.envs[i] for i in indices]
+
+    # def get_attr(self, attr_name, indices=None):
+    #     """Return attribute from vectorized environment (see base class)."""
+    #     target_envs = self._get_target_envs(indices)
+    #     return [getattr(env_i, attr_name) for env_i in target_envs]
 
 class Task:
     def __init__(self,
