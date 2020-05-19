@@ -29,8 +29,8 @@ class A2CRecurrentAgent(BaseAgent):
         self.recurrent_states = None
         self.done = True
         self.smh = None
-        self.curr = config.curriculum
 
+        self.curr = config.curriculum
         if self.curr:
             self.reward_buffer = deque([], maxlen=(config.num_workers + self.curr.min_length))
 
@@ -48,9 +48,10 @@ class A2CRecurrentAgent(BaseAgent):
             end = time.time()
 
             print('reserved bytes', torch.cuda.memory_reserved() / (1024 * 1024), 'MB')
+            self.logger.add_scalar('reserved_bytes', torch.cuda.memory_reserved() / (1024 * 1024), self.total_steps)
 
-            self.logger.add_scalar('forward_pass_time', end-start, self.total_steps)
             print('forward time', end-start)
+            self.logger.add_scalar('forward_pass_time', end-start, self.total_steps)
 
             self.done = False
 
@@ -63,14 +64,22 @@ class A2CRecurrentAgent(BaseAgent):
             self.record_online_return(info)
             rewards = config.reward_normalizer(rewards)
             storage.add(prediction)
+            if terminals[0] == None:
+                print(terminals)
+                print(rewards)
+                print(info)
+                print(to_np(prediction['a']))
+                print(self.total_steps)
             storage.add({'r': tensor(rewards).unsqueeze(-1).cuda(),
                          'm': tensor(1 - terminals).unsqueeze(-1).cuda()})
 
             states = next_states
+
+            self.recurrent_states = [rs * storage.m[-1] for rs in self.recurrent_states]
             self.total_steps += config.num_workers
 
             for ifs in info:
-                if ifs['episodic_return'] is not None:
+                if ifs['episodic_return'] is not None and self.curr:
                     self.reward_buffer.append(ifs['episodic_return'])
 
         if self.curr is not None:
@@ -88,10 +97,10 @@ class A2CRecurrentAgent(BaseAgent):
                     self.task.change_level(False)
                     self.reward_buffer.clear()
 
-
         self.states = states
-        prediction, self.recurrent_states = self.network(config.state_normalizer(states))
-        # self.smh = [s.detach() for s in self.smh]
+
+        with torch.no_grad():
+            prediction, _ = self.network(config.state_normalizer(states), self.recurrent_states)
 
         storage.add(prediction)
         storage.placeholder()
@@ -107,6 +116,8 @@ class A2CRecurrentAgent(BaseAgent):
                 advantages = advantages * config.gae_tau * config.discount * storage.m[i] + td_error
             storage.adv[i] = advantages.detach()
             storage.ret[i] = returns.detach()
+
+        start_train = time.time()
 
         log_prob, value, returns, advantages, entropy = storage.cat(['log_pi_a', 'v', 'ret', 'adv', 'ent'])
         policy_loss = -(log_prob * advantages).mean()
@@ -129,7 +140,11 @@ class A2CRecurrentAgent(BaseAgent):
 
         end = time.time()
         self.logger.add_scalar('backwards_pass_time', end-start, self.total_steps)
-        # [rs.detach_() for rs in self.recurrent_states]
-        # self.recurrent_states = [rs.detach() for rs in self.recurrent_states]
+
+        self.recurrent_states = [rs.detach() for rs in self.recurrent_states]
+
+        end_train = time.time()
+        self.logger.add_scalar('train_loop_time', end_train-start_train, self.total_steps)
+
 
 

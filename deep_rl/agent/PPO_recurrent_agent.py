@@ -97,17 +97,6 @@ from .BaseAgent import *
 #                 self.opt.step()
 
 
-#######################################################################
-# Copyright (C) 2017 Shangtong Zhang(zhangshangtong.cpp@gmail.com)    #
-# Permission given to modify the code as long as you keep this        #
-# declaration at the top                                              #
-#######################################################################
-
-# TODO:
-# - plot average rewards in matplotlib
-# - look at when entropy loss is recorded
-
-
 from ..network import *
 from ..component import *
 from .BaseAgent import *
@@ -127,7 +116,8 @@ class PPORecurrentAgent(BaseAgent):
     def __init__(self, config):
         BaseAgent.__init__(self, config)
         self.config = config #config file, contains hyperparameters and other info
-        self.task = config.task_fn() #gym environment
+        self.task = config.task_fn() #gym environment wrapper
+        self.hidden_size = config.hidden_size
 
         if config.network: #nnet used
             self.network = config.network
@@ -137,69 +127,88 @@ class PPORecurrentAgent(BaseAgent):
 
         self.optimizer = config.optimizer_fn(self.network.parameters()) #optimization function
         self.total_steps = 0
-        self.recurrent_states = None
-        self.first_recurrent_states = None
+
         self.states = self.task.reset()
-        self.recurrence = config.recurrence
-        self.done = True
+
+        self.hp = torch.zeros(1, self.config.num_workers, self.hidden_size).to(device) #lstm hidden states
+        self.cp = torch.zeros(1, self.config.num_workers, self.hidden_size).to(device) #lstm cell states
+        self.hv = torch.zeros(1, self.config.num_workers, self.hidden_size).to(device) #lstm hidden states
+        self.cv = torch.zeros(1, self.config.num_workers, self.hidden_size).to(device) #lstm cell states
+        print("running PPO, tag is " + config.tag)
 
     def step(self):
         config = self.config
         storage = Storage(config.rollout_length)
 
+        states_mem = []
+
         states = self.states
-        self.first_recurrent_states = self.recurrent_states
-        for _ in range(config.rollout_length):
-            #put states and recurrent states into storage
-            if self.done:
-                cleared = [None for i in range(self.config.num_workers)]
-                self.recurrent_states = [cleared, cleared]
-                storage.add({'rs': self.recurrent_states})
-            else:
-                rstates = list(self.recurrent_states)
-                for i, state in enumerate(rstates):
-                    rstates[i] = state.detach()
-                storage.add({'rs': rstates})
 
-            #run the neural net once to get prediction
-            start = time.time()
-            if self.done:
-                prediction, self.recurrent_states = self.network(states)
-            else:
-                prediction, self.recurrent_states = self.network(states, self.recurrent_states)
-            end = time.time()
-            self.logger.add_scalar('forward_pass_time', end-start, self.total_steps)
+        ##############################################################################################
+        #Sampling Loop
+        ##############################################################################################
+        with torch.no_grad():
+            for _ in range(config.rollout_length):
 
-            self.done = False
+                #add recurrent states (lstm hidden and lstm cell states) to storage
+                storage.add({
+                    'hp' : self.hp.squeeze(0),
+                    'cp' : self.cp.squeeze(0),
+                    'hv' : self.hv.squeeze(0),
+                    'cv' : self.cv.squeeze(0)
+                })
 
-            #step the environment with the action determined by the prediction
-            start = time.time()
-            next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
-            end = time.time()
-            self.logger.add_scalar('env_step_time', end-start, self.total_steps)
+                #run the neural net once to get prediction
+                prediction, (self.hp, self.cp, self.hv, self.cv) = self.network(states, (self.hp, self.cp, self.hv, self.cv))
 
-            self.record_online_return(info)
-            rewards = config.reward_normalizer(rewards)
+                #step the environment with the action determined by the prediction
+                next_states, rewards, terminals, info = self.task.step(to_np(prediction['a']))
+                self.record_online_return(info)
+                rewards = config.reward_normalizer(rewards)
 
-            #add everything to storage
-            storage.add(prediction)
-            storage.add({'s': states})
-            storage.add({'r': tensor(rewards).unsqueeze(-1).to(device),
-                         'm': tensor(1 - terminals).unsqueeze(-1).to(device)})
-            states = next_states
+                #add everything to storage
+                storage.add({
+                    'a': prediction['a'],
+                    'log_pi_a': prediction['log_pi_a'].squeeze(0),
+                    'ent': prediction['ent'].squeeze(0),
+                    'v': prediction['v'].squeeze(0),
+                })
+                storage.add({
+                    'r': tensor(rewards).unsqueeze(-1).to(device),
+                    'm': tensor(1 - terminals).unsqueeze(-1).to(device)
+                    })
+                states_mem.extend(states)
+                states = next_states
 
-            self.total_steps += config.num_workers
+                #zero out lstm recurrent state if any of the environments finish
+                for i, done in enumerate(terminals):
+                    if done:
+                        self.hp[0][i] = torch.zeros(self.hidden_size).to(device)
+                        self.cp[0][i] = torch.zeros(self.hidden_size).to(device)
+                        self.hv[0][i] = torch.zeros(self.hidden_size).to(device)
+                        self.cv[0][i] = torch.zeros(self.hidden_size).to(device)
 
-        self.states = states
+                self.total_steps += config.num_workers
 
-        prediction, self.recurrent_states = self.network(states)
+            self.states = states
 
-        #TODO:This could possibly be an issue, would this prediction ever be used?
-        storage.add(prediction)
-        storage.placeholder()
+            prediction, _ = self.network(states, (self.hp, self.cp, self.hv, self.cv))
+
+            storage.add({
+                'a': prediction['a'],
+                'log_pi_a': prediction['log_pi_a'].squeeze(0),
+                'ent': prediction['ent'].squeeze(0),
+                'v': prediction['v'].squeeze(0),
+            })
+            storage.placeholder()
+
+
+        #############################################################################################
+        #Calculate advantages and returns and set up for training
+        #############################################################################################
 
         advantages = tensor(np.zeros((config.num_workers, 1))).to(device)
-        returns = prediction['v'].detach()
+        returns = prediction['v'].squeeze(0).detach()
         for i in reversed(range(config.rollout_length)):
             returns = storage.r[i] + config.discount * storage.m[i] * returns
             if not config.use_gae:
@@ -210,32 +219,36 @@ class PPORecurrentAgent(BaseAgent):
             storage.adv[i] = advantages.detach()
             storage.ret[i] = returns.detach()
 
-        log_probs_old, values, returns, advantages= storage.cat(['log_pi_a', 'v', 'ret', 'adv'])
+        actions, log_probs_old, returns, advantages= storage.cat(['a', 'log_pi_a', 'ret', 'adv'])
         log_probs_old = log_probs_old.detach()
-        values = values.detach()
-        states = storage.s
-        rc_states = storage.rs
+
+        hp, cp, hv, cv = storage.cat(['hp', 'cp', 'hv', 'cv'])
 
         advantages = (advantages - advantages.mean()) / advantages.std()
 
         self.logger.add_scalar('advantages', advantages.mean(), self.total_steps)
 
 
+
+        ############################################################################################
+        #Training Loop
+        ############################################################################################
         for _ in range(config.optimization_epochs):
-            sampler = random_sample(np.arange(len(states)), config.mini_batch_size)
+            sampler = random_sample(np.arange(len(actions)), config.mini_batch_size)
             for batch_indices in sampler:
                 batch_indices = tensor(batch_indices).long()
 
+                sampled_actions = actions[batch_indices]
                 sampled_log_probs_old = log_probs_old[batch_indices]
                 sampled_returns = returns[batch_indices]
                 sampled_advantages = advantages[batch_indices]
+                sampled_states = [states_mem[i] for i in batch_indices]
+                sampled_hp = hp[batch_indices].unsqueeze(0)
+                sampled_cp = cp[batch_indices].unsqueeze(0)
+                sampled_hv = hv[batch_indices].unsqueeze(0)
+                sampled_cv = cv[batch_indices].unsqueeze(0)
 
-                sampled_rc_states = [rc_states[i] for i in batch_indices]
-                sampled_states = []
-                for i in batch_indices:
-                    sampled_states = sampled_states + list(states[i])
-
-                prediction, _ = self.network(sampled_states, sampled_rc_states)
+                prediction, _ = self.network(sampled_states, (sampled_hp, sampled_cp, sampled_hv, sampled_cv), sampled_actions)
 
                 ratio = (prediction['log_pi_a'] - sampled_log_probs_old).exp()
                 obj = ratio * sampled_advantages
@@ -245,10 +258,10 @@ class PPORecurrentAgent(BaseAgent):
 
                 value_loss = 0.5 * (sampled_returns - prediction['v']).pow(2).mean()
 
-                self.opt.zero_grad()
-                (policy_loss + value_loss).backward()
+                self.optimizer.zero_grad()
+                (policy_loss + config.value_loss_weight * value_loss).backward()
                 nn.utils.clip_grad_norm_(self.network.parameters(), config.gradient_clip)
-                self.opt.step()
+                self.optimizer.step()
 
                 self.logger.add_scalar('entropy_loss', prediction['ent'].mean(), self.total_steps)
                 self.logger.add_scalar('policy_loss', policy_loss, self.total_steps)

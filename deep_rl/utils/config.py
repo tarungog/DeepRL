@@ -60,6 +60,7 @@ class Config:
         self.async_actor = True
         self.tasks = False
         self.curriculum = None
+        self.hidden_size = None
 
     @property
     def eval_env(self):
