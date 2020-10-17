@@ -205,8 +205,8 @@ class PPORecurrentAgentRecurrence(BaseAgent):
         start_train = time.time()
 
         for _ in range(config.optimization_epochs):
-            indices = numpy.arange(0, self.config.rollout_length * self.config.num_workers, self.recurrence);
-            indices = numpy.random.permutation(indices);
+            indices = numpy.arange(0, self.config.rollout_length * self.config.num_workers, self.recurrence)
+            indices = numpy.random.permutation(indices)
 
             if self.batch_num % 2 == 1:
                 indices = indices[(indices + self.recurrence) % config.rollout_length != 0]
@@ -236,16 +236,15 @@ class PPORecurrentAgentRecurrence(BaseAgent):
 
                     sampled_states = [states[j] for j in (starting_indices + i)]
 
-
-
                     prediction, (sampled_hp, sampled_cp, sampled_hv, sampled_cv) = self.network(sampled_states, (sampled_hp, sampled_cp, sampled_hv, sampled_cv), sampled_actions)
-
 
                     entropy = prediction['ent'].mean()
                     prediction['log_pi_a'] = prediction['log_pi_a'].squeeze(0)
                     prediction['v'] = prediction['v'].squeeze(0)
 
-                    ratio = (prediction['log_pi_a'] - sampled_log_probs_old).exp()
+
+                    max_action = prediction['log_pi_a'].shape[1]
+                    ratio = (prediction['log_pi_a'] - sampled_log_probs_old[:,:max_action]).exp()
 
                     obj = ratio * sampled_advantages
                     obj_clipped = ratio.clamp(1.0 - self.config.ppo_ratio_clip,
@@ -260,7 +259,7 @@ class PPORecurrentAgentRecurrence(BaseAgent):
                     batch_entropy += entropy.item()
                     batch_policy_loss += policy_loss.item()
                     batch_value_loss += value_loss.item()
-                    batch_loss += loss;
+                    batch_loss += loss
 
                     if i < self.recurrence - 1:
                         for sample_id, batch_id in enumerate(starting_indices):
@@ -280,6 +279,7 @@ class PPORecurrentAgentRecurrence(BaseAgent):
                 self.logger.add_scalar('value_loss', batch_value_loss, self.total_steps)
 
                 self.logger.add_scalar('reserved_bytes', torch.cuda.memory_reserved() / (1024 * 1024), self.total_steps)
+                print('reserved_bytes', torch.cuda.memory_reserved() / (1024 * 1024))
 
                 start = time.time()
                 self.optimizer.zero_grad()
